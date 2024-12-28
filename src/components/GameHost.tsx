@@ -18,6 +18,10 @@ export const GameHost = () => {
     const activePlayers = state.players.filter(p => !p.isFolded);
     if (activePlayers.length === 0) return false;
     
+    if (state.currentRound === ROUNDS_PER_EPOCH) {
+      return activePlayers.every(p => p.hasEndedBetting);
+    }
+    
     const allPlayersActed = activePlayers.every(p => 
       p.currentBet === state.highestBet || p.isAllIn || p.isFolded
     );

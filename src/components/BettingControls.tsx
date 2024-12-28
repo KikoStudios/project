@@ -15,30 +15,41 @@ export const BettingControls: FC<BettingControlsProps> = ({
   onFold
 }) => {
   const [betAmount, setBetAmount] = useState(minBet);
-  const longPressTimer = useRef<NodeJS.Timeout>();
-  const isIncrementing = useRef(false);
+  const pressStartTime = useRef<number>(0);
+  const longPressTimer = useRef<ReturnType<typeof setInterval>>();
+  const holdDuration = useRef<number>(0);
 
   const adjustBet = (increment: number) => {
     setBetAmount(prev => {
-      const newAmount = Math.min(Math.max(minBet, prev + increment), maxBet);
-      return Math.round(newAmount / 10) * 10; // Round to nearest 10
+      // Calculate how many full seconds were held
+      const secondsHeld = Math.floor(holdDuration.current / 1000);
+      // If held for less than a second, add/subtract 10
+      // If held for 1+ seconds, add/subtract 100 for each second
+      const amount = secondsHeld > 0 ? secondsHeld * 100 : 10;
+      const newAmount = Math.min(Math.max(minBet, prev + (increment ? amount : -amount)), maxBet);
+      return Math.round(newAmount / 10) * 10;
     });
   };
 
-  const handleTouchStart = (increment: boolean) => {
-    isIncrementing.current = increment;
-    longPressTimer.current = setTimeout(() => {
-      const interval = setInterval(() => {
-        adjustBet(increment ? 100 : -100);
-      }, 100);
-      longPressTimer.current = interval;
-    }, 500);
+  const handlePressStart = () => {
+    pressStartTime.current = Date.now();
+    holdDuration.current = 0;
+
+    // Start tracking hold duration
+    longPressTimer.current = setInterval(() => {
+      holdDuration.current = Date.now() - pressStartTime.current;
+    }, 100);
   };
 
-  const handleTouchEnd = () => {
+  const handlePressEnd = (increment: boolean) => {
     if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
+      clearInterval(longPressTimer.current);
       longPressTimer.current = undefined;
+    }
+    // Only adjust bet if we actually held the button
+    if (pressStartTime.current > 0) {
+      adjustBet(increment);
+      pressStartTime.current = 0;
     }
   };
 
@@ -47,9 +58,11 @@ export const BettingControls: FC<BettingControlsProps> = ({
       <div className="flex items-center justify-between bg-white/5 rounded-lg p-4">
         <button
           className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center text-white"
-          onTouchStart={() => handleTouchStart(false)}
-          onTouchEnd={handleTouchEnd}
-          onClick={() => adjustBet(-10)}
+          onMouseDown={() => handlePressStart()}
+          onMouseUp={() => handlePressEnd(false)}
+          onMouseLeave={() => handlePressEnd(false)}
+          onTouchStart={() => handlePressStart()}
+          onTouchEnd={() => handlePressEnd(false)}
         >
           <Minus size={24} />
         </button>
@@ -61,9 +74,11 @@ export const BettingControls: FC<BettingControlsProps> = ({
 
         <button
           className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white"
-          onTouchStart={() => handleTouchStart(true)}
-          onTouchEnd={handleTouchEnd}
-          onClick={() => adjustBet(10)}
+          onMouseDown={() => handlePressStart()}
+          onMouseUp={() => handlePressEnd(true)}
+          onMouseLeave={() => handlePressEnd(true)}
+          onTouchStart={() => handlePressStart()}
+          onTouchEnd={() => handlePressEnd(true)}
         >
           <Plus size={24} />
         </button>

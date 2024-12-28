@@ -17,7 +17,7 @@ export interface Loan {
   id: string;
   from: string;
   amount: number;
-  interestType: 'overall' | 'per_round';
+  interestType: 'overall' | 'per_round' | 'gift';
   interestAmount: number;
   totalOwed: number;
   isPaid: boolean;

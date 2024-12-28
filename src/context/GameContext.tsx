@@ -22,7 +22,9 @@ type GameAction =
   | { type: 'SELECT_WINNER'; payload: { playerId: string } }
   | { type: 'REJECT_LOAN'; payload: { loanRequestId: string } }
   | { type: 'PAY_LOAN'; payload: { playerId: string; loanId: string; amount: number } }
-  | { type: 'KICK_PLAYER'; payload: { playerId: string } };
+  | { type: 'KICK_PLAYER'; payload: { playerId: string } }
+  | { type: 'RECOVER_ACCOUNT'; payload: { sourcePlayerId: string; targetPlayerId: string } }
+  | { type: 'CANCEL_END_BETTING'; payload: { playerId: string } };
 
 const GameContext = createContext<{
   state: GameState;
@@ -80,75 +82,36 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
     }
 
     case 'START_NEW_ROUND': {
-      // Check if all players have folded
-      const activePlayers = state.players.filter(p => !p.isFolded);
-      if (activePlayers.length <= 1) {
-        // If only one or no players left, start new epoch and give money to last player
-        const newState = {
-          ...state,
-          currentEpoch: state.currentEpoch + 1,
-          currentRound: 0,
-          highestBet: 0,
-          players: state.players.map(p => {
-            if (activePlayers.length === 1 && p.id === activePlayers[0].id) {
-              // Give pool money to last active player
-              return {
-                ...p,
-                money: p.money + state.moneyPool,
-                isFolded: false,
-                currentBet: 0,
-                needsAction: true,
-                hasEndedBetting: false
-              };
-            }
-            return {
-              ...p,
-              isFolded: false,
-              currentBet: 0,
-              needsAction: true,
-              hasEndedBetting: false
-            };
-          }),
-          moneyPool: 0,
-          lastStateUpdate: Date.now()
-        };
-
-        localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
-        return newState;
-      }
-
-      // If it's the last round of the epoch
-      if (state.currentRound === ROUNDS_PER_EPOCH) {
-        // Don't start new round, wait for winner selection
-        return state;
-      }
-
-      // Normal round progression
+      const timestamp = Date.now();
       const newState = {
         ...state,
         currentRound: state.currentRound + 1,
-        highestBet: 0,
-        players: state.players.map(player => ({
-          ...player,
+        players: state.players.map(p => ({
+          ...p,
           currentBet: 0,
-          needsAction: !player.isFolded,
-          hasEndedBetting: false,
-          loans: player.loans.map(loan => {
-            if (loan.isPaid) return loan;
-            
-            if (loan.interestType === 'per_round') {
-              return {
-                ...loan,
-                totalOwed: loan.totalOwed + loan.interestAmount
-              };
-            }
-            return loan;
-          })
+          lastBetAmount: 0,
+          needsAction: !p.isFolded,
+          hasEndedBetting: false
         })),
-        lastStateUpdate: Date.now()
+        highestBet: 0,
+        lastStateUpdate: timestamp
       };
 
-      localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
+      // Force immediate state update
+      const gameCode = state.gameCode;
+      localStorage.setItem(`game_${gameCode}`, JSON.stringify(newState));
+
+      // Add a small delay to ensure all clients receive the update
+      setTimeout(() => {
+        const storedState = localStorage.getItem(`game_${gameCode}`);
+        if (storedState) {
+          const parsedState = JSON.parse(storedState);
+          if (parsedState.lastStateUpdate === timestamp) {
+            return newState;
+          }
+        }
+      }, 100);
+
       return newState;
     }
 
@@ -213,6 +176,7 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
       const { playerId } = action.payload;
       const timestamp = Date.now();
       
+      // Create new state with the player folded
       const newState = {
         ...state,
         players: state.players.map(p =>
@@ -227,7 +191,29 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
         lastStateUpdate: timestamp
       };
 
-      // Save to localStorage
+      // Check if only one player remains
+      const activePlayers = newState.players.filter(p => !p.isFolded);
+      if (activePlayers.length === 1) {
+        // Give the pot to the last remaining player
+        const winner = activePlayers[0];
+        newState.players = newState.players.map(p => 
+          p.id === winner.id
+            ? { ...p, money: p.money + state.moneyPool }
+            : p
+        );
+        newState.moneyPool = 0;
+        newState.currentRound = 0;
+        newState.currentEpoch += 1;
+        // Reset all players for next epoch
+        newState.players = newState.players.map(p => ({
+          ...p,
+          isFolded: false,
+          currentBet: 0,
+          needsAction: true,
+          hasEndedBetting: false
+        }));
+      }
+
       localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
       return newState;
     }
@@ -460,38 +446,12 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
         lastStateUpdate: Date.now()
       };
 
-      // Check if this is the last round and if all non-folded players have ended betting
-      if (state.currentRound === ROUNDS_PER_EPOCH) {
-        const activePlayers = state.players.filter(p => !p.isFolded);
-        const allEndedBetting = activePlayers.every(p => 
-          p.hasEndedBetting || p.isFolded
-        );
-        
-        if (allEndedBetting) {
-          if (activePlayers.length === 1) {
-            // If only one player remains, they win automatically
-            newState.players = newState.players.map(p =>
-              p.id === activePlayers[0].id
-                ? { ...p, money: p.money + state.moneyPool }
-                : p
-            );
-            newState.moneyPool = 0;
-            newState.showWinnerSelection = false;
-            // Start new epoch
-            newState.currentEpoch += 1;
-            newState.currentRound = 0;
-            newState.players = newState.players.map(p => ({
-              ...p,
-              isFolded: false,
-              currentBet: 0,
-              needsAction: true,
-              hasEndedBetting: false
-            }));
-          } else if (activePlayers.length > 1) {
-            // Multiple players remain, host needs to select winner
-            newState.showWinnerSelection = true;
-          }
-        }
+      // Check if all non-folded players have ended betting
+      const activePlayers = newState.players.filter(p => !p.isFolded);
+      const allEndedBetting = activePlayers.every(p => p.hasEndedBetting);
+      
+      if (allEndedBetting) {
+        newState.showWinnerSelection = true;
       }
 
       localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
@@ -589,6 +549,55 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
         players: state.players.filter(p => p.id !== action.payload.playerId),
         lastStateUpdate: Date.now()
       };
+      localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
+      return newState;
+    }
+
+    case 'RECOVER_ACCOUNT': {
+      const { sourcePlayerId, targetPlayerId } = action.payload;
+      const sourcePlayer = state.players.find(p => p.id === sourcePlayerId);
+      
+      if (!sourcePlayer) return state;
+
+      const newState = {
+        ...state,
+        players: state.players.map(p => {
+          if (p.id === targetPlayerId) {
+            // Transfer money and loans to target player
+            return {
+              ...p,
+              money: sourcePlayer.money,
+              loans: [...p.loans, ...sourcePlayer.loans]
+            };
+          }
+          if (p.id === sourcePlayerId) {
+            // Reset source player
+            return {
+              ...p,
+              money: state.initialMoney,
+              loans: []
+            };
+          }
+          return p;
+        }),
+        lastStateUpdate: Date.now()
+      };
+
+      localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
+      return newState;
+    }
+
+    case 'CANCEL_END_BETTING': {
+      const newState = {
+        ...state,
+        players: state.players.map(p =>
+          p.id === action.payload.playerId
+            ? { ...p, hasEndedBetting: false }
+            : p
+        ),
+        lastStateUpdate: Date.now()
+      };
+      
       localStorage.setItem(`game_${state.gameCode}`, JSON.stringify(newState));
       return newState;
     }
