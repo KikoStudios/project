@@ -22,75 +22,22 @@ export const JoinGame: FC<JoinGameProps> = ({
   const { state, dispatch } = useGame();
 
   const handleJoinGame = async () => {
-    if (!gameCode) {
-      alert('Please enter game code');
+    if (!gameCode || !playerName) {
+      alert('Please enter both game code and name');
       return;
     }
 
     try {
       const game = await gameStateHelpers.getGame(gameCode);
-      
       if (!game) {
         alert('Game not found');
         return;
       }
 
-      // Save to localStorage
-      localStorage.setItem(`game_${gameCode}`, JSON.stringify(game.state));
-      
-      continueJoin(JSON.stringify(game.state));
-    } catch (error) {
-      console.error('Failed to join game:', error);
-      alert('Failed to join game');
-    }
-  };
-
-  const continueJoin = (gameState: string) => {
-    try {
-      const parsedState = JSON.parse(gameState);
-      if (!gameCode) {
-        alert('Please enter game code');
-        return;
-      }
-
-      // Handle spectator join
-      if (playerName === '##m-poll##') {
-        const spectatorId = crypto.randomUUID();
-        dispatch({
-          type: 'ADD_SPECTATOR',
-          payload: { spectatorId }
-        });
-        
-        // Update URL with game code and state
-        const url = new URL(window.location.href);
-        url.searchParams.set('code', gameCode);
-        url.searchParams.set('spectatorId', spectatorId);
-        url.searchParams.set('gameState', gameState);
-        window.history.pushState({}, '', url);
-        
-        window.location.reload();
-        return;
-      }
-
-      if (!playerName) {
-        alert('Please enter your name');
-        return;
-      }
-
-      const nameExists = parsedState.players?.some(
-        (p: Player) => p.name.toLowerCase() === playerName.toLowerCase()
-      );
-
-      if (nameExists) {
-        alert('This name is already taken. Please choose a different name.');
-        return;
-      }
-
-      const playerId = crypto.randomUUID();
       const newPlayer = {
-        id: playerId,
+        id: crypto.randomUUID(),
         name: playerName,
-        money: parsedState.initialMoney || state.initialMoney,
+        money: game.state.initialMoney || 1000,
         isFolded: false,
         currentBet: 0,
         loans: [],
@@ -102,22 +49,26 @@ export const JoinGame: FC<JoinGameProps> = ({
         hasEndedBetting: false
       };
 
-      // Update URL with all necessary parameters
-      const url = new URL(window.location.href);
-      url.searchParams.set('code', gameCode);
-      url.searchParams.set('playerId', playerId);
-      url.searchParams.set('gameState', gameState);
-      window.history.pushState({}, '', url);
+      // Add player to the game
+      await gameStateHelpers.addPlayer(gameCode, newPlayer);
 
-      dispatch({
-        type: 'JOIN_GAME',
-        payload: { player: newPlayer }
+      // Subscribe to game updates
+      const subscription = gameStateHelpers.subscribeToGame(gameCode, (updatedGame) => {
+        if (updatedGame) {
+          localStorage.setItem(`game_${gameCode}`, JSON.stringify(updatedGame.state));
+        }
       });
 
+      // Update URL and navigate
+      const url = new URL(window.location.href);
+      url.searchParams.set('code', gameCode);
+      url.searchParams.set('playerId', newPlayer.id);
+      window.history.pushState({}, '', url);
+
       onJoinGame();
-    } catch (e) {
-      console.error('Failed to parse game state');
-      alert('Invalid game state');
+    } catch (error) {
+      console.error('Error joining game:', error);
+      alert('Failed to join game');
     }
   };
 

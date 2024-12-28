@@ -11,7 +11,7 @@ export const gameStateHelpers = {
     try {
       const { data, error } = await supabase
         .from('games')
-        .select('*')  // Select all columns
+        .select('*')
         .eq('game_code', gameCode.toUpperCase())
         .single();
       
@@ -29,7 +29,6 @@ export const gameStateHelpers = {
 
   async createGame(gameState: any) {
     try {
-      // First, check if game code already exists
       const existing = await this.getGame(gameState.gameCode);
       if (existing) {
         throw new Error('Game code already exists');
@@ -40,6 +39,9 @@ export const gameStateHelpers = {
         .insert({
           game_code: gameState.gameCode.toUpperCase(),
           state: gameState,
+          players: [],
+          host: gameState.host,
+          game_status: 'waiting',
           last_updated: new Date().toISOString()
         })
         .select()
@@ -53,7 +55,7 @@ export const gameStateHelpers = {
       return data;
     } catch (error) {
       console.error('Error creating game:', error);
-      throw error; // Let the component handle the error
+      throw error;
     }
   },
 
@@ -63,6 +65,8 @@ export const gameStateHelpers = {
         .from('games')
         .update({
           state: gameState,
+          players: gameState.players || [],
+          game_status: gameState.gameStatus,
           last_updated: new Date().toISOString()
         })
         .eq('game_code', gameCode.toUpperCase());
@@ -75,20 +79,49 @@ export const gameStateHelpers = {
     }
   },
 
-  // Subscribe to game changes
-  subscribeToGame(gameCode: string, callback: (state: any) => void) {
+  async addPlayer(gameCode: string, player: any) {
+    try {
+      const game = await this.getGame(gameCode);
+      if (!game) return false;
+
+      const currentPlayers = game.players || [];
+      const updatedPlayers = [...currentPlayers, player];
+
+      const { error } = await supabase
+        .from('games')
+        .update({
+          players: updatedPlayers,
+          state: {
+            ...game.state,
+            players: updatedPlayers
+          },
+          last_updated: new Date().toISOString()
+        })
+        .eq('game_code', gameCode.toUpperCase());
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error adding player:', error);
+      return false;
+    }
+  },
+
+  // Real-time subscription to game changes
+  subscribeToGame(gameCode: string, callback: (payload: any) => void) {
     return supabase
       .channel(`game:${gameCode}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
           table: 'games',
-          filter: `game_code=eq.${gameCode}`
+          filter: `game_code=eq.${gameCode.toUpperCase()}`
         },
         (payload) => {
-          callback(payload.new.state);
+          console.log('Game update received:', payload);
+          callback(payload.new);
         }
       )
       .subscribe();
