@@ -1,5 +1,6 @@
 import { FC } from 'react';
 import { useGame } from '../context/GameContext';
+import { gameStateHelpers } from '../lib/supabase';
 
 interface JoinGameProps {
   gameCode: string;
@@ -20,59 +21,25 @@ export const JoinGame: FC<JoinGameProps> = ({
 }) => {
   const { state, dispatch } = useGame();
 
-  const handleJoinGame = () => {
+  const handleJoinGame = async () => {
     if (!gameCode) {
       alert('Please enter game code');
       return;
     }
 
-    // Try to get state from URL first
-    const urlParams = new URLSearchParams(window.location.search);
-    const encodedState = urlParams.get('state');
-    let gameState;
-
-    if (encodedState) {
-      try {
-        gameState = atob(encodedState);
-      } catch (e) {
-        console.error('Failed to decode state');
+    try {
+      const game = await gameStateHelpers.getGame(gameCode);
+      if (!game) {
+        alert('Game not found');
+        return;
       }
+
+      const gameState = game.state;
+      continueJoin(gameState);
+    } catch (error) {
+      console.error('Failed to join game:', error);
+      alert('Failed to join game');
     }
-
-    // Fallback to localStorage
-    if (!gameState) {
-      gameState = localStorage.getItem(`game_${gameCode}`);
-    }
-
-    // If still no state, try to fetch from host
-    if (!gameState) {
-      // Create a unique channel for this game
-      const channel = new BroadcastChannel(`game_${gameCode}`);
-      
-      // Request state from host
-      channel.postMessage({ type: 'REQUEST_STATE' });
-      
-      // Set a timeout for response
-      const timeout = setTimeout(() => {
-        channel.close();
-        alert('Game not found or host not responding');
-      }, 3000);
-
-      // Listen for response
-      channel.onmessage = (event) => {
-        if (event.data.type === 'STATE_RESPONSE') {
-          clearTimeout(timeout);
-          channel.close();
-          gameState = event.data.state;
-          localStorage.setItem(`game_${gameCode}`, gameState);
-          continueJoin(gameState);
-        }
-      };
-
-      return;
-    }
-
-    continueJoin(gameState);
   };
 
   const continueJoin = (gameState: string) => {

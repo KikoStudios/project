@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import { GameState, Player, Loan } from '../types';
 import { ROUNDS_PER_EPOCH } from '../utils/gameUtils';
+import { gameStateHelpers } from '../lib/supabase';
 
 type GameAction =
   | { type: 'JOIN_GAME'; payload: { player: Player } }
@@ -32,6 +33,8 @@ const GameContext = createContext<{
 } | null>(null);
 
 const gameReducer = (state: GameState, action: GameAction): GameState => {
+  let newState: GameState;
+
   switch (action.type) {
     case 'JOIN_GAME': {
       const urlParams = new URLSearchParams(window.location.search);
@@ -603,8 +606,16 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
     }
 
     default:
-      return state;
+      newState = state;
   }
+
+  // Save state changes to Supabase
+  if (newState !== state && newState.gameCode) {
+    gameStateHelpers.updateGame(newState.gameCode, newState)
+      .catch(console.error);
+  }
+
+  return newState;
 };
 
 export const initialState: GameState = {
@@ -630,32 +641,37 @@ export const initialState: GameState = {
 export const GameProvider = ({ children }: { children: ReactNode }) => {
   const [state, dispatch] = useReducer(gameReducer, initialState);
 
-  // Initialize game state from URL if available
+  // Initialize game state from URL and Supabase
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const codeFromUrl = params.get('code')?.toUpperCase();
-    const gameStateFromUrl = params.get('gameState');
     
-    if (codeFromUrl && gameStateFromUrl) {
-      try {
-        const parsedState = JSON.parse(gameStateFromUrl);
-        dispatch({ 
-          type: 'SET_INITIAL_STATE', 
-          payload: parsedState 
-        });
-        // Also save to localStorage
-        localStorage.setItem(`game_${codeFromUrl}`, gameStateFromUrl);
-      } catch (error) {
-        console.error('Failed to parse game state from URL');
-      }
-    } else if (codeFromUrl) {
-      const storedState = localStorage.getItem(`game_${codeFromUrl}`);
-      if (storedState) {
-        dispatch({ 
-          type: 'SET_INITIAL_STATE', 
-          payload: JSON.parse(storedState)
-        });
-      }
+    if (codeFromUrl) {
+      gameStateHelpers.getGame(codeFromUrl)
+        .then(game => {
+          if (game) {
+            dispatch({ 
+              type: 'SET_INITIAL_STATE', 
+              payload: game.state 
+            });
+          }
+        })
+        .catch(console.error);
+
+      // Subscribe to game updates
+      const subscription = gameStateHelpers.subscribeToGame(
+        codeFromUrl,
+        (newState) => {
+          dispatch({ 
+            type: 'SET_INITIAL_STATE', 
+            payload: newState 
+          });
+        }
+      );
+
+      return () => {
+        subscription.unsubscribe();
+      };
     }
   }, []);
 
