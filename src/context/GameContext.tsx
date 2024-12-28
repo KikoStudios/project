@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useReducer, ReactNode, useEffect, FC } from 'react';
 import { GameState, Player, Loan } from '../types';
 import { ROUNDS_PER_EPOCH } from '../utils/gameUtils';
 import { gameStateHelpers } from '../lib/supabase';
@@ -25,7 +25,8 @@ type GameAction =
   | { type: 'PAY_LOAN'; payload: { playerId: string; loanId: string; amount: number } }
   | { type: 'KICK_PLAYER'; payload: { playerId: string } }
   | { type: 'RECOVER_ACCOUNT'; payload: { sourcePlayerId: string; targetPlayerId: string } }
-  | { type: 'CANCEL_END_BETTING'; payload: { playerId: string } };
+  | { type: 'CANCEL_END_BETTING'; payload: { playerId: string } }
+  | { type: 'ADD_PLAYER'; payload: Player };
 
 const GameContext = createContext<{
   state: GameState;
@@ -36,6 +37,18 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
   let newState: GameState;
 
   switch (action.type) {
+    case 'SET_INITIAL_STATE':
+      return action.payload;
+
+    case 'ADD_PLAYER': {
+      newState = {
+        ...state,
+        players: [...state.players, action.payload],
+        lastStateUpdate: Date.now()
+      };
+      break;
+    }
+
     case 'JOIN_GAME': {
       const urlParams = new URLSearchParams(window.location.search);
       const codeFromUrl = urlParams.get('code')?.toUpperCase();
@@ -68,20 +81,6 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
       localStorage.setItem(`game_${codeFromUrl}`, JSON.stringify(newState));
       
       return newState;
-    }
-
-    case 'SET_INITIAL_STATE': {
-      // Only update if this is for our game code
-      const params = new URLSearchParams(window.location.search);
-      const currentGameCode = params.get('code')?.toUpperCase();
-      
-      if (currentGameCode === action.payload.gameCode) {
-        return {
-          ...action.payload,
-          lastStateUpdate: Date.now()
-        };
-      }
-      return state;
     }
 
     case 'START_NEW_ROUND': {
@@ -609,10 +608,11 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
       newState = state;
   }
 
-  // Save state changes to Supabase
+  // Sync state changes with database
   if (newState !== state && newState.gameCode) {
+    console.log('Syncing state to database:', newState);
     gameStateHelpers.updateGame(newState.gameCode, newState)
-      .catch(console.error);
+      .catch(error => console.error('Failed to sync state:', error));
   }
 
   return newState;
@@ -638,40 +638,24 @@ export const initialState: GameState = {
   loanRequests: []
 };
 
-export const GameProvider = ({ children }: { children: ReactNode }) => {
+export const GameProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(gameReducer, initialState);
 
-  // Initialize game state from URL and Supabase
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const codeFromUrl = params.get('code')?.toUpperCase();
-    
-    if (codeFromUrl) {
-      gameStateHelpers.getGame(codeFromUrl)
+    const gameCode = params.get('code');
+
+    if (gameCode) {
+      gameStateHelpers.getGame(gameCode)
         .then(game => {
           if (game) {
-            dispatch({ 
-              type: 'SET_INITIAL_STATE', 
-              payload: game.state 
+            dispatch({
+              type: 'SET_INITIAL_STATE',
+              payload: game.state
             });
           }
         })
         .catch(console.error);
-
-      // Subscribe to game updates
-      const subscription = gameStateHelpers.subscribeToGame(
-        codeFromUrl,
-        (newState) => {
-          dispatch({ 
-            type: 'SET_INITIAL_STATE', 
-            payload: newState 
-          });
-        }
-      );
-
-      return () => {
-        subscription.unsubscribe();
-      };
     }
   }, []);
 

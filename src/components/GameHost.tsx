@@ -1,38 +1,81 @@
-import { useState, useEffect } from 'react';
+import { FC, useEffect, useState } from 'react';
 import { Settings, Users, DollarSign } from 'lucide-react';
 import { PlayerList } from './PlayerList';
 import { GameControls } from './GameControls';
 import { QRCodeDisplay } from './QRCodeDisplay';
 import { SettingsModal } from './Settings';
 import { useGame } from '../context/GameContext';
-import { useGameSync } from '../hooks/useGameSync';
+import { gameStateHelpers } from '../lib/supabase';
 import { ROUNDS_PER_EPOCH } from '../utils/gameUtils';
 
-export const GameHost = () => {
+export const GameHost: FC = () => {
   const { state, dispatch } = useGame();
   const [showSettings, setShowSettings] = useState(false);
-  
-  useGameSync();
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Create a channel for this game
-    const channel = new BroadcastChannel(`game_${state.gameCode}`);
-    
-    // Listen for state requests
-    channel.onmessage = (event) => {
-      if (event.data.type === 'REQUEST_STATE') {
-        // Send current state
-        const currentState = JSON.stringify(state);
-        channel.postMessage({
-          type: 'STATE_RESPONSE',
-          state: currentState
+    const initHost = async () => {
+      try {
+        setIsLoading(true);
+        const params = new URLSearchParams(window.location.search);
+        const gameCode = params.get('code');
+
+        if (!gameCode) {
+          throw new Error('No game code found');
+        }
+
+        // Get initial game state
+        const gameData = await gameStateHelpers.getGame(gameCode);
+        if (!gameData) {
+          throw new Error('Game not found');
+        }
+
+        // Update local state with database state
+        dispatch({
+          type: 'SET_INITIAL_STATE',
+          payload: gameData.state
         });
+
+        // Subscribe to real-time updates
+        const subscription = gameStateHelpers.subscribeToGame(gameCode, (updatedGame) => {
+          if (updatedGame) {
+            console.log('Host received game update:', updatedGame);
+            dispatch({
+              type: 'SET_INITIAL_STATE',
+              payload: updatedGame.state
+            });
+          }
+        });
+
+        // Ping to keep game active
+        const pingInterval = setInterval(() => {
+          gameStateHelpers.updateGame(gameCode, {
+            ...gameData.state,
+            lastStateUpdate: Date.now()
+          });
+        }, 30000); // Every 30 seconds
+
+        return () => {
+          subscription.unsubscribe();
+          clearInterval(pingInterval);
+        };
+      } catch (error) {
+        console.error('Host init error:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
 
-    // Clean up
-    return () => channel.close();
-  }, [state.gameCode]);
+    initHost();
+  }, [dispatch]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading game...</div>
+      </div>
+    );
+  }
 
   const canStartNewRound = () => {
     const activePlayers = state.players.filter(p => !p.isFolded);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { FC, useEffect, useState } from 'react';
 import { useGameSession } from '../hooks/useGameSession';
 import { useGame } from '../context/GameContext';
 import { HandCoins, Users } from 'lucide-react';
@@ -8,8 +8,64 @@ import { KickedOverlay } from './KickedOverlay';
 import { DisconnectedHostOverlay } from './DisconnectedHostOverlay';
 import { BettingControls } from './BettingControls';
 import { EndBettingConfirmModal } from './EndBettingConfirmModal';
+import { gameStateHelpers } from '../lib/supabase';
 
-export const PlayerView = () => {
+export const PlayerView: FC = () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { state } = useGame();
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        setIsLoading(true);
+        const params = new URLSearchParams(window.location.search);
+        const gameCode = params.get('code');
+        const playerId = params.get('playerId');
+
+        if (!gameCode || !playerId) {
+          throw new Error('Missing game code or player ID');
+        }
+
+        // Subscribe to game updates
+        const subscription = gameStateHelpers.subscribeToGame(gameCode, (updatedGame) => {
+          if (updatedGame) {
+            console.log('Game update received in PlayerView:', updatedGame);
+            localStorage.setItem(`game_${gameCode}`, JSON.stringify(updatedGame.state));
+          }
+        });
+
+        // Cleanup subscription on unmount
+        return () => {
+          subscription.unsubscribe();
+        };
+      } catch (err) {
+        console.error('PlayerView init error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to initialize game');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    init();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading game...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-white text-xl">Error: {error}</div>
+      </div>
+    );
+  }
+
   const state = useGameSession();
   const { dispatch } = useGame();
   const [showLoanOptions, setShowLoanOptions] = useState(false);
