@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Use environment variables with fallback
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://gienbzqhuvvwczossjgy.supabase.co';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpZW5ienFodXZ2d2N6b3Nzamd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUzNzY2NjAsImV4cCI6MjA1MDk1MjY2MH0.868U5tmBy35CObDd6i5_jvd65tRKHwoSpuISoMMC8Rw';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'your_anon_key';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -15,11 +14,7 @@ export const gameStateHelpers = {
         .eq('game_code', gameCode.toUpperCase())
         .single();
       
-      if (error) {
-        console.error('Supabase error:', error);
-        return null;
-      }
-      
+      if (error) throw error;
       return data;
     } catch (error) {
       console.error('Error getting game:', error);
@@ -29,29 +24,37 @@ export const gameStateHelpers = {
 
   async createGame(gameState: any) {
     try {
-      const existing = await this.getGame(gameState.gameCode);
-      if (existing) {
-        throw new Error('Game code already exists');
-      }
-
       const { data, error } = await supabase
         .from('games')
         .insert({
           game_code: gameState.gameCode.toUpperCase(),
-          state: gameState,
+          state: {
+            ...gameState,
+            players: [],
+            communityCards: [],
+            pot: 0,
+            currentBet: 0,
+            round: 0,
+            gameStatus: 'waiting',
+            lastStateUpdate: Date.now()
+          },
           players: [],
           host: gameState.host,
           game_status: 'waiting',
+          current_round: {
+            bets: [],
+            pot: 0,
+            current_player: null,
+            community_cards: []
+          },
+          betting_history: [],
+          loans: [],
           last_updated: new Date().toISOString()
         })
         .select()
         .single();
       
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
-      
+      if (error) throw error;
       return data;
     } catch (error) {
       console.error('Error creating game:', error);
@@ -67,6 +70,14 @@ export const gameStateHelpers = {
           state: gameState,
           players: gameState.players || [],
           game_status: gameState.gameStatus,
+          current_round: {
+            bets: gameState.currentRound?.bets || [],
+            pot: gameState.pot || 0,
+            current_player: gameState.currentPlayer || null,
+            community_cards: gameState.communityCards || []
+          },
+          betting_history: gameState.bettingHistory || [],
+          loans: gameState.loans || [],
           last_updated: new Date().toISOString()
         })
         .eq('game_code', gameCode.toUpperCase());
@@ -79,35 +90,55 @@ export const gameStateHelpers = {
     }
   },
 
-  async addPlayer(gameCode: string, player: any) {
-    try {
-      const game = await this.getGame(gameCode);
-      if (!game) return false;
+  async addBet(gameCode: string, playerId: string, amount: number) {
+    const game = await this.getGame(gameCode);
+    if (!game) return false;
 
-      const currentPlayers = game.players || [];
-      const updatedPlayers = [...currentPlayers, player];
+    const currentRound = game.current_round;
+    currentRound.bets.push({ playerId, amount, timestamp: Date.now() });
+    currentRound.pot += amount;
 
-      const { error } = await supabase
-        .from('games')
-        .update({
-          players: updatedPlayers,
-          state: {
-            ...game.state,
-            players: updatedPlayers
-          },
-          last_updated: new Date().toISOString()
-        })
-        .eq('game_code', gameCode.toUpperCase());
-
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      console.error('Error adding player:', error);
-      return false;
-    }
+    return this.updateGame(gameCode, {
+      ...game.state,
+      currentRound,
+      lastStateUpdate: Date.now()
+    });
   },
 
-  // Real-time subscription to game changes
+  async addLoan(gameCode: string, playerId: string, amount: number) {
+    const game = await this.getGame(gameCode);
+    if (!game) return false;
+
+    const loans = game.loans || [];
+    loans.push({
+      playerId,
+      amount,
+      timestamp: Date.now(),
+      repaid: false
+    });
+
+    return this.updateGame(gameCode, {
+      ...game.state,
+      loans,
+      lastStateUpdate: Date.now()
+    });
+  },
+
+  async updatePlayerStatus(gameCode: string, playerId: string, updates: any) {
+    const game = await this.getGame(gameCode);
+    if (!game) return false;
+
+    const players = game.state.players.map(p => 
+      p.id === playerId ? { ...p, ...updates } : p
+    );
+
+    return this.updateGame(gameCode, {
+      ...game.state,
+      players,
+      lastStateUpdate: Date.now()
+    });
+  },
+
   subscribeToGame(gameCode: string, callback: (payload: any) => void) {
     return supabase
       .channel(`game:${gameCode}`)
