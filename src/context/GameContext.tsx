@@ -634,14 +634,26 @@ export const GameProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const codeFromUrl = params.get('code')?.toUpperCase();
+    const gameStateFromUrl = params.get('gameState');
     
-    if (codeFromUrl) {
-      const storedState = localStorage.getItem(`game_${codeFromUrl}`);
-      if (storedState) {
-        const parsedState = JSON.parse(storedState);
+    if (codeFromUrl && gameStateFromUrl) {
+      try {
+        const parsedState = JSON.parse(gameStateFromUrl);
         dispatch({ 
           type: 'SET_INITIAL_STATE', 
           payload: parsedState 
+        });
+        // Also save to localStorage
+        localStorage.setItem(`game_${codeFromUrl}`, gameStateFromUrl);
+      } catch (error) {
+        console.error('Failed to parse game state from URL');
+      }
+    } else if (codeFromUrl) {
+      const storedState = localStorage.getItem(`game_${codeFromUrl}`);
+      if (storedState) {
+        dispatch({ 
+          type: 'SET_INITIAL_STATE', 
+          payload: JSON.parse(storedState)
         });
       }
     }

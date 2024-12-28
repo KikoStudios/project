@@ -26,12 +26,39 @@ export const JoinGame: FC<JoinGameProps> = ({
       return;
     }
 
-    // Check if game exists
-    const gameState = localStorage.getItem(`game_${gameCode}`);
+    // Get game state from localStorage first
+    let gameState = localStorage.getItem(`game_${gameCode}`);
+
+    // If no local state, try to get it from another tab/window
     if (!gameState) {
-      alert('Game not found');
+      const bc = new BroadcastChannel(`game_${gameCode}`);
+      bc.postMessage({ type: 'REQUEST_STATE' });
+      
+      // Wait for response
+      bc.onmessage = (event) => {
+        if (event.data.type === 'STATE_RESPONSE') {
+          gameState = event.data.state;
+          localStorage.setItem(`game_${gameCode}`, gameState);
+          continueJoin(gameState);
+        }
+      };
+
+      // Timeout if no response
+      setTimeout(() => {
+        if (!gameState) {
+          alert('Game not found');
+          bc.close();
+        }
+      }, 1000);
+      
       return;
     }
+
+    continueJoin(gameState);
+  };
+
+  const continueJoin = (gameState: string) => {
+    if (!gameState) return;
 
     // Handle spectator join
     if (playerName === '##m-poll##') {
@@ -41,13 +68,14 @@ export const JoinGame: FC<JoinGameProps> = ({
         payload: { spectatorId }
       });
       
-      // Update URL with game code
+      // Update URL with game code and state
       const url = new URL(window.location.href);
       url.searchParams.set('code', gameCode);
       url.searchParams.set('spectatorId', spectatorId);
+      url.searchParams.set('gameState', gameState);
       window.history.pushState({}, '', url);
       
-      window.location.reload(); // Force reload for spectator view
+      window.location.reload();
       return;
     }
 
@@ -56,7 +84,6 @@ export const JoinGame: FC<JoinGameProps> = ({
       return;
     }
 
-    // Check if name is already taken
     const parsedState = JSON.parse(gameState);
     const nameExists = parsedState.players?.some(
       (p: Player) => p.name.toLowerCase() === playerName.toLowerCase()
@@ -67,10 +94,11 @@ export const JoinGame: FC<JoinGameProps> = ({
       return;
     }
 
+    const playerId = crypto.randomUUID();
     const newPlayer = {
-      id: crypto.randomUUID(),
+      id: playerId,
       name: playerName,
-      money: state.initialMoney,
+      money: parsedState.initialMoney || state.initialMoney,
       isFolded: false,
       currentBet: 0,
       loans: [],
@@ -82,10 +110,11 @@ export const JoinGame: FC<JoinGameProps> = ({
       hasEndedBetting: false
     };
 
-    // Add game code and player ID to URL
+    // Update URL with all necessary parameters
     const url = new URL(window.location.href);
     url.searchParams.set('code', gameCode);
-    url.searchParams.set('playerId', newPlayer.id);
+    url.searchParams.set('playerId', playerId);
+    url.searchParams.set('gameState', gameState);
     window.history.pushState({}, '', url);
 
     dispatch({

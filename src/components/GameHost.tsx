@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, Users, DollarSign } from 'lucide-react';
 import { PlayerList } from './PlayerList';
 import { GameControls } from './GameControls';
@@ -13,6 +13,24 @@ export const GameHost = () => {
   const [showSettings, setShowSettings] = useState(false);
   
   useGameSync();
+
+  useEffect(() => {
+    const bc = new BroadcastChannel(`game_${state.gameCode}`);
+    
+    bc.onmessage = (event) => {
+      if (event.data.type === 'REQUEST_STATE') {
+        const currentState = localStorage.getItem(`game_${state.gameCode}`);
+        if (currentState) {
+          bc.postMessage({
+            type: 'STATE_RESPONSE',
+            state: currentState
+          });
+        }
+      }
+    };
+
+    return () => bc.close();
+  }, [state.gameCode]);
 
   const canStartNewRound = () => {
     const activePlayers = state.players.filter(p => !p.isFolded);
