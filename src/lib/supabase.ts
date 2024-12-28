@@ -1,16 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Hardcode the values for now to test
-const supabaseUrl = 'https://gienbzqhuvvwczossjgy.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpZW5ienFodXZ2d2N6b3Nzamd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzUzNzY2NjAsImV4cCI6MjA1MDk1MjY2MH0.868U5tmBy35CObDd6i5_jvd65tRKHwoSpuISoMMC8Rw';
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables');
-}
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://gienbzqhuvvwczossjgy.supabase.co';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'your_current_key';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Helper functions for game state
 export const gameStateHelpers = {
   async getGame(gameCode: string) {
     try {
@@ -45,7 +39,7 @@ export const gameStateHelpers = {
       return data;
     } catch (error) {
       console.error('Error creating game:', error);
-      return null;
+      throw error;
     }
   },
 

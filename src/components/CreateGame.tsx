@@ -1,5 +1,6 @@
 import { FC } from 'react';
 import { useGame } from '../context/GameContext';
+import { gameStateHelpers } from '../lib/supabase';
 
 // Import initialState from GameContext
 import { initialState } from '../context/GameContext';
@@ -20,7 +21,7 @@ export const CreateGame: FC<CreateGameProps> = ({
   // Get dispatch from useGame hook
   const { dispatch } = useGame();
 
-  const handleCreateGame = () => {
+  const handleCreateGame = async () => {
     if (!playerName) return;
 
     const gameCode = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -28,26 +29,34 @@ export const CreateGame: FC<CreateGameProps> = ({
       ...initialState,
       gameCode,
       host: playerName,
-      players: [], // Explicitly initialize empty players array
+      players: [],
       communityCards: [],
       gameStatus: 'waiting',
       lastStateUpdate: Date.now()
     };
 
-    // Save initial game state to localStorage
-    localStorage.setItem(`game_${gameCode}`, JSON.stringify(newGameState));
-    
-    // Update URL with game code
-    const url = new URL(window.location.href);
-    url.searchParams.set('code', gameCode);
-    window.history.pushState({}, '', url);
-    
-    dispatch({ 
-      type: 'SET_INITIAL_STATE', 
-      payload: newGameState 
-    });
+    try {
+      // Save to Supabase
+      await gameStateHelpers.createGame(newGameState);
+      
+      // Save to localStorage
+      localStorage.setItem(`game_${gameCode}`, JSON.stringify(newGameState));
+      
+      // Update URL and state
+      const url = new URL(window.location.href);
+      url.searchParams.set('code', gameCode);
+      window.history.pushState({}, '', url);
+      
+      dispatch({ 
+        type: 'SET_INITIAL_STATE', 
+        payload: newGameState 
+      });
 
-    onCreateGame();
+      onCreateGame();
+    } catch (error) {
+      console.error('Failed to create game:', error);
+      alert('Failed to create game. Please try again.');
+    }
   };
 
   return (

@@ -29,13 +29,16 @@ export const JoinGame: FC<JoinGameProps> = ({
 
     try {
       const game = await gameStateHelpers.getGame(gameCode);
+      
       if (!game) {
         alert('Game not found');
         return;
       }
 
-      const gameState = game.state;
-      continueJoin(gameState);
+      // Save to localStorage
+      localStorage.setItem(`game_${gameCode}`, JSON.stringify(game.state));
+      
+      continueJoin(JSON.stringify(game.state));
     } catch (error) {
       console.error('Failed to join game:', error);
       alert('Failed to join game');
