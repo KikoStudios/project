@@ -9,15 +9,27 @@ interface QRCodeDisplayProps {
 export const QRCodeDisplay: FC<QRCodeDisplayProps> = ({ gameCode }) => {
   const { state } = useGame();
   
-  // Create a simpler join URL with just the game code
-  const joinUrl = `${window.location.origin}?code=${gameCode}&v=1`;
+  // Include the full state in a base64 encoded format
+  const gameState = JSON.stringify({
+    gameCode,
+    initialMoney: state.initialMoney,
+    bankLoansEnabled: state.bankLoansEnabled,
+    currentRound: state.currentRound,
+    currentEpoch: state.currentEpoch,
+    players: state.players,
+    moneyPool: state.moneyPool,
+    gameStatus: state.gameStatus
+  });
+
+  const encodedState = btoa(gameState);
+  const joinUrl = `${window.location.origin}?code=${gameCode}&state=${encodedState}&v=1`;
 
   return (
     <div className="bg-white p-4 rounded-lg shadow-lg inline-block">
       <QRCodeSVG
         value={joinUrl}
         size={200}
-        level="L" // Using lowest error correction for simpler QR
+        level="L"
         includeMargin={true}
         className="mx-auto"
       />

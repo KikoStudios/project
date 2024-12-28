@@ -15,21 +15,23 @@ export const GameHost = () => {
   useGameSync();
 
   useEffect(() => {
-    const bc = new BroadcastChannel(`game_${state.gameCode}`);
+    // Create a channel for this game
+    const channel = new BroadcastChannel(`game_${state.gameCode}`);
     
-    bc.onmessage = (event) => {
+    // Listen for state requests
+    channel.onmessage = (event) => {
       if (event.data.type === 'REQUEST_STATE') {
-        const currentState = localStorage.getItem(`game_${state.gameCode}`);
-        if (currentState) {
-          bc.postMessage({
-            type: 'STATE_RESPONSE',
-            state: currentState
-          });
-        }
+        // Send current state
+        const currentState = JSON.stringify(state);
+        channel.postMessage({
+          type: 'STATE_RESPONSE',
+          state: currentState
+        });
       }
     };
 
-    return () => bc.close();
+    // Clean up
+    return () => channel.close();
   }, [state.gameCode]);
 
   const canStartNewRound = () => {

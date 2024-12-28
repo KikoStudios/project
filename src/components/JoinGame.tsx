@@ -26,31 +26,49 @@ export const JoinGame: FC<JoinGameProps> = ({
       return;
     }
 
-    // Get game state from localStorage first
-    let gameState = localStorage.getItem(`game_${gameCode}`);
+    // Try to get state from URL first
+    const urlParams = new URLSearchParams(window.location.search);
+    const encodedState = urlParams.get('state');
+    let gameState;
 
-    // If no local state, try to get it from another tab/window
+    if (encodedState) {
+      try {
+        gameState = atob(encodedState);
+      } catch (e) {
+        console.error('Failed to decode state');
+      }
+    }
+
+    // Fallback to localStorage
     if (!gameState) {
-      const bc = new BroadcastChannel(`game_${gameCode}`);
-      bc.postMessage({ type: 'REQUEST_STATE' });
+      gameState = localStorage.getItem(`game_${gameCode}`);
+    }
+
+    // If still no state, try to fetch from host
+    if (!gameState) {
+      // Create a unique channel for this game
+      const channel = new BroadcastChannel(`game_${gameCode}`);
       
-      // Wait for response
-      bc.onmessage = (event) => {
+      // Request state from host
+      channel.postMessage({ type: 'REQUEST_STATE' });
+      
+      // Set a timeout for response
+      const timeout = setTimeout(() => {
+        channel.close();
+        alert('Game not found or host not responding');
+      }, 3000);
+
+      // Listen for response
+      channel.onmessage = (event) => {
         if (event.data.type === 'STATE_RESPONSE') {
+          clearTimeout(timeout);
+          channel.close();
           gameState = event.data.state;
           localStorage.setItem(`game_${gameCode}`, gameState);
           continueJoin(gameState);
         }
       };
 
-      // Timeout if no response
-      setTimeout(() => {
-        if (!gameState) {
-          alert('Game not found');
-          bc.close();
-        }
-      }, 1000);
-      
       return;
     }
 
@@ -58,71 +76,79 @@ export const JoinGame: FC<JoinGameProps> = ({
   };
 
   const continueJoin = (gameState: string) => {
-    if (!gameState) return;
+    try {
+      const parsedState = JSON.parse(gameState);
+      if (!gameCode) {
+        alert('Please enter game code');
+        return;
+      }
 
-    // Handle spectator join
-    if (playerName === '##m-poll##') {
-      const spectatorId = crypto.randomUUID();
-      dispatch({
-        type: 'ADD_SPECTATOR',
-        payload: { spectatorId }
-      });
-      
-      // Update URL with game code and state
+      // Handle spectator join
+      if (playerName === '##m-poll##') {
+        const spectatorId = crypto.randomUUID();
+        dispatch({
+          type: 'ADD_SPECTATOR',
+          payload: { spectatorId }
+        });
+        
+        // Update URL with game code and state
+        const url = new URL(window.location.href);
+        url.searchParams.set('code', gameCode);
+        url.searchParams.set('spectatorId', spectatorId);
+        url.searchParams.set('gameState', gameState);
+        window.history.pushState({}, '', url);
+        
+        window.location.reload();
+        return;
+      }
+
+      if (!playerName) {
+        alert('Please enter your name');
+        return;
+      }
+
+      const nameExists = parsedState.players?.some(
+        (p: Player) => p.name.toLowerCase() === playerName.toLowerCase()
+      );
+
+      if (nameExists) {
+        alert('This name is already taken. Please choose a different name.');
+        return;
+      }
+
+      const playerId = crypto.randomUUID();
+      const newPlayer = {
+        id: playerId,
+        name: playerName,
+        money: parsedState.initialMoney || state.initialMoney,
+        isFolded: false,
+        currentBet: 0,
+        loans: [],
+        isActive: true,
+        lastActive: Date.now(),
+        isAllIn: false,
+        lastBetAmount: 0,
+        needsAction: false,
+        hasEndedBetting: false
+      };
+
+      // Update URL with all necessary parameters
       const url = new URL(window.location.href);
       url.searchParams.set('code', gameCode);
-      url.searchParams.set('spectatorId', spectatorId);
+      url.searchParams.set('playerId', playerId);
       url.searchParams.set('gameState', gameState);
       window.history.pushState({}, '', url);
-      
-      window.location.reload();
-      return;
+
+      dispatch({
+        type: 'JOIN_GAME',
+        payload: { player: newPlayer }
+      });
+
+      onJoinGame();
+    } catch (e) {
+      console.error('Failed to parse game state');
+      alert('Invalid game state');
     }
-
-    if (!playerName) {
-      alert('Please enter your name');
-      return;
-    }
-
-    const parsedState = JSON.parse(gameState);
-    const nameExists = parsedState.players?.some(
-      (p: Player) => p.name.toLowerCase() === playerName.toLowerCase()
-    );
-
-    if (nameExists) {
-      alert('This name is already taken. Please choose a different name.');
-      return;
-    }
-
-    const playerId = crypto.randomUUID();
-    const newPlayer = {
-      id: playerId,
-      name: playerName,
-      money: parsedState.initialMoney || state.initialMoney,
-      isFolded: false,
-      currentBet: 0,
-      loans: [],
-      isActive: true,
-      lastActive: Date.now(),
-      isAllIn: false,
-      lastBetAmount: 0,
-      needsAction: false,
-      hasEndedBetting: false
-    };
-
-    // Update URL with all necessary parameters
-    const url = new URL(window.location.href);
-    url.searchParams.set('code', gameCode);
-    url.searchParams.set('playerId', playerId);
-    url.searchParams.set('gameState', gameState);
-    window.history.pushState({}, '', url);
-
-    dispatch({
-      type: 'JOIN_GAME',
-      payload: { player: newPlayer }
-    });
-
-    onJoinGame();
   };
 
   return (

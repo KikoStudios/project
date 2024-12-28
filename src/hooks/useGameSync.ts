@@ -102,4 +102,31 @@ export const useGameSync = () => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [dispatch, playerId]);
+
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      const params = new URLSearchParams(window.location.search);
+      const gameCode = params.get('code');
+      
+      if (gameCode) {
+        // Get latest state
+        const currentState = localStorage.getItem(`game_${gameCode}`);
+        if (currentState) {
+          try {
+            const parsedState = JSON.parse(currentState);
+            if (parsedState.lastStateUpdate > state.lastStateUpdate) {
+              dispatch({
+                type: 'SET_INITIAL_STATE',
+                payload: parsedState
+              });
+            }
+          } catch (e) {
+            console.error('Failed to parse state during sync');
+          }
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(syncInterval);
+  }, [state.lastStateUpdate]);
 };
