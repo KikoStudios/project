@@ -19,8 +19,6 @@ export const JoinGame: FC<JoinGameProps> = ({
   onCreateGame,
   onJoinGame
 }) => {
-  const { state, dispatch } = useGame();
-
   const handleJoinGame = async () => {
     if (!gameCode || !playerName) {
       alert('Please enter both game code and name');
@@ -28,7 +26,9 @@ export const JoinGame: FC<JoinGameProps> = ({
     }
 
     try {
+      console.log('Attempting to join game:', gameCode);
       const game = await gameStateHelpers.getGame(gameCode);
+      
       if (!game) {
         alert('Game not found');
         return;
@@ -49,17 +49,22 @@ export const JoinGame: FC<JoinGameProps> = ({
         hasEndedBetting: false
       };
 
-      // Add player to the game
-      await gameStateHelpers.addPlayer(gameCode, newPlayer);
+      console.log('Adding player to game:', newPlayer);
+      const success = await gameStateHelpers.addPlayer(gameCode, newPlayer);
+      
+      if (!success) {
+        throw new Error('Failed to add player to game');
+      }
 
-      // Subscribe to game updates
-      const subscription = gameStateHelpers.subscribeToGame(gameCode, (updatedGame) => {
+      // Set up real-time subscription
+      gameStateHelpers.subscribeToGame(gameCode, (updatedGame) => {
         if (updatedGame) {
+          console.log('Game update received:', updatedGame);
           localStorage.setItem(`game_${gameCode}`, JSON.stringify(updatedGame.state));
         }
       });
 
-      // Update URL and navigate
+      // Update URL with game code and player ID
       const url = new URL(window.location.href);
       url.searchParams.set('code', gameCode);
       url.searchParams.set('playerId', newPlayer.id);
@@ -68,50 +73,38 @@ export const JoinGame: FC<JoinGameProps> = ({
       onJoinGame();
     } catch (error) {
       console.error('Error joining game:', error);
-      alert('Failed to join game');
+      alert('Failed to join game. Please try again.');
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <input
+        type="text"
+        placeholder="Game Code"
+        value={gameCode}
+        onChange={(e) => onGameCodeChange(e.target.value.toUpperCase())}
+        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/50"
+      />
+      <input
+        type="text"
+        placeholder="Your Name"
+        value={playerName}
+        onChange={(e) => onPlayerNameChange(e.target.value)}
+        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/50"
+      />
+      <button
+        onClick={handleJoinGame}
+        className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white py-4 rounded-lg font-semibold hover:from-blue-600 hover:to-indigo-700 transition-all"
+      >
+        Join Game
+      </button>
       <button
         onClick={onCreateGame}
-        className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white py-4 rounded-lg font-semibold hover:from-purple-600 hover:to-indigo-700 transition-all"
+        className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-4 rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transition-all"
       >
-        Create Game
+        Create New Game
       </button>
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-white/10"></div>
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-transparent text-white/60">or</span>
-        </div>
-      </div>
-      <div className="space-y-4">
-        <input
-          type="text"
-          placeholder="Enter Game Code"
-          value={gameCode}
-          onChange={(e) => onGameCodeChange(e.target.value.toUpperCase())}
-          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/50"
-          maxLength={6}
-        />
-        <input
-          type="text"
-          placeholder="Your Name"
-          value={playerName}
-          onChange={(e) => onPlayerNameChange(e.target.value)}
-          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/50"
-        />
-        <button
-          onClick={handleJoinGame}
-          disabled={!gameCode || !playerName}
-          className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-4 rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Join Game
-        </button>
-      </div>
     </div>
   );
 };

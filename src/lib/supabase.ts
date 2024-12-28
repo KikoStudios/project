@@ -157,5 +157,54 @@ export const gameStateHelpers = {
         }
       )
       .subscribe();
+  },
+
+  async addPlayer(gameCode: string, player: any) {
+    console.log('Adding player to game:', gameCode, player);
+    try {
+      const game = await this.getGame(gameCode);
+      if (!game) {
+        console.error('Game not found');
+        return false;
+      }
+
+      // Check if player name already exists
+      const existingPlayer = game.state.players?.find(
+        (p: any) => p.name.toLowerCase() === player.name.toLowerCase()
+      );
+
+      if (existingPlayer) {
+        console.error('Player name already exists');
+        throw new Error('This name is already taken');
+      }
+
+      // Add the new player
+      const updatedPlayers = [...(game.state.players || []), player];
+      const updatedState = {
+        ...game.state,
+        players: updatedPlayers,
+        lastStateUpdate: Date.now()
+      };
+
+      const { error } = await supabase
+        .from('games')
+        .update({
+          state: updatedState,
+          players: updatedPlayers,
+          last_updated: new Date().toISOString()
+        })
+        .eq('game_code', gameCode.toUpperCase());
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      console.log('Successfully added player');
+      return true;
+    } catch (error) {
+      console.error('Error adding player:', error);
+      throw error;
+    }
   }
 }; 
