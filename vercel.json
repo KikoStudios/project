@@ -1,0 +1,11 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "vite",
+  "regions": ["iad1"],
+  "env": {
+    "VITE_KV_REST_API_URL": "@kv_rest_api_url",
+    "VITE_KV_REST_API_TOKEN": "@kv_rest_api_token"
+  }
+} 

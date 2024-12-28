@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, ReactNode, useEffect, FC } from 'react';
 import { GameState, Player, Loan } from '../types';
 import { ROUNDS_PER_EPOCH } from '../utils/gameUtils';
-import { gameStateHelpers } from '../lib/supabase';
+import { gameStateHelpers } from '../lib/kv';
 
 type GameAction =
   | { type: 'JOIN_GAME'; payload: { player: Player } }
@@ -646,6 +646,7 @@ export const GameProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const gameCode = params.get('code');
 
     if (gameCode) {
+      // Initial load
       gameStateHelpers.getGame(gameCode)
         .then(game => {
           if (game) {
@@ -656,6 +657,16 @@ export const GameProvider: FC<{ children: ReactNode }> = ({ children }) => {
           }
         })
         .catch(console.error);
+
+      // Set up polling
+      const cleanup = gameStateHelpers.pollGame(gameCode, (game) => {
+        dispatch({
+          type: 'SET_INITIAL_STATE',
+          payload: game.state
+        });
+      });
+
+      return cleanup;
     }
   }, []);
 
